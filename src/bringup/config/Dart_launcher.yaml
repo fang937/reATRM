@@ -1,0 +1,124 @@
+rmcs_executor:
+  ros__parameters:
+    update_rate: 1000.0
+    components:
+      - rmcs_core::hardware::Dart_launcher -> Dart_launcher_hardware
+
+      # - rmcs_core::referee::Status -> referee_status
+      # - rmcs_core::referee::Command -> referee_command
+
+      - rmcs_core::controller::shooting::shooting_dartController -> shooting_dart_controller
+      
+      - rmcs_core::controller::pid::ErrorPidController -> left_angle_pid_controller
+      - rmcs_core::controller::pid::PidController -> left_velocity_pid_controller
+
+      - rmcs_core::controller::pid::ErrorPidController -> right_angle_pid_controller
+      - rmcs_core::controller::pid::PidController -> right_velocity_pid_controller
+    
+      - rmcs_core::broadcaster::ValueBroadcaster -> value_broadcaster
+      - rmcs_core::controller::diagnosis::Diagnosis -> diagnosis
+value_broadcaster:
+  ros__parameters:
+    forward_list:
+    - /trigger/left_motor/angle
+    - /trigger/right_motor/angle
+    
+                    
+
+    - /trigger/right_motor/control_angle
+    - /trigger/left_motor/control_angle
+
+    - /trigger/right_motor/control_velocity
+    - /trigger/left_motor/control_velocity
+
+    - /trigger/right_motor/control_torque
+    - /trigger/left_motor/control_torque
+
+Dart_launcher_hardware:
+  ros__parameters:
+    usb_pid_top_board: 0x7b4e
+    left_motor_zero_point: 0
+    right_motor_zero_point: 0
+
+    imu_bias_x: 1
+    imu_bias_y: 3
+    imu_bias_z: 3
+
+
+
+
+shooting_dart_controller:
+  ros__parameters:
+    left_motor_velocity_limit: 20.0
+    right_motor_velocity_limit: 20.0
+    serco_angle_limit: 180.0
+
+    joystick_left_bias_y: 0.0
+    joystick_sensitivity: 0.004
+
+
+    depond_motors:
+     - /trigger/left_motor
+     - /trigger/right_motor
+
+left_velocity_pid_controller:
+  ros__parameters:
+    measurement: /trigger/left_motor/velocity
+    setpoint: 6.28
+    control: /trigger/left_motor/control_torque
+    enable: /trigger/left_motor/alive
+    kp: 0.1
+    ki: 0.0
+    kd: 0.0
+    max_output: 0.2
+    min_output: -0.2
+
+
+left_angle_pid_controller:
+  ros__parameters:
+    measurement: /trigger/left_motor/angle
+    setpoint: /trigger/left_motor/control_angle
+    control: /trigger/left_motor/control_velocity
+    enable: /trigger/left_motor/alive
+    kp: 0.1
+    ki: 0.0
+    kd: 0.0
+    max_output: 5.0
+    min_output: -5.0
+
+
+right_velocity_pid_controller:
+  ros__parameters:
+    measurement: /trigger/right_motor/velocity
+    setpoint: 6.28
+    control: /trigger/right_motor/control_torque
+    enable: /trigger/right_motor/alive
+    kp: 0.1
+    ki: 0.0
+    kd: 0.0
+    max_output: 0.2
+    min_output: -0.2
+
+right_angle_pid_controller:
+  ros__parameters:
+    measurement: /trigger/right_motor/angle
+    setpoint: /trigger/right_motor/control_angle
+    control: /trigger/right_motor/control_velocity
+    enable: /trigger/right_motor/alive
+    kp: 0.1
+    ki: 0.0
+    kd: 0.0
+    max_output: 5.0
+    min_output: -5.0   
+
+
+Diagnosis:
+  ros__parameters:
+    motors:
+    - /trigger/left_motor
+    - /trigger/right_motor
+
+    enable_motor_check: true
+    enable_supercap_check: false
+    enable_imu_check: false
+  

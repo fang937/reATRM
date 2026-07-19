@@ -33,7 +33,6 @@ public:
         , command_component_(
               create_partner_component<HeroCommand>(get_component_name() + "_command", *this)) {
         using namespace rmcs_description;
-
         register_output("/tf", tf_);
         tf_->set_transform<PitchLink, CameraLink>(Eigen::Translation3d{0.17, 0.0, 0.05});
         tf_->set_transform<PitchLink, CameraLink>(
@@ -64,8 +63,10 @@ public:
         top_board_->command_update();
         bottom_board_->command_update();
     }
-
+// 这是云台的控制程序包括日志输出和状态更新
 private:
+// 这个函数主要是定义了两个类，TopBoard和BottomBoard，分别对应英雄机器人中的两个控制板。
+// 每个控制板都继承自librmcs::client::CBoard，并且包含了与该控制板相关的设备和功能。
     void gimbal_calibrate_subscription_callback(std_msgs::msg::Int32::UniquePtr) {
         RCLCPP_INFO(
             get_logger(), "[gimbal calibration] New yaw offset: %d",
@@ -74,7 +75,7 @@ private:
             get_logger(), "[gimbal calibration] New pitch offset: %d",
             top_board_->gimbal_pitch_motor_.calibrate_zero_point());
     }
-
+// TopBoard类包含了IMU、云台电机、摩擦轮等设备，并且实现了CAN总线和DBUS的接收回调函数，用于处理来自这些设备的数据。
     class HeroCommand : public rmcs_executor::Component {
     public:
         explicit HeroCommand(Hero& hero)
@@ -85,7 +86,10 @@ private:
         Hero& hero_;
     };
     std::shared_ptr<HeroCommand> command_component_;
-
+// The top board is responsible for the gimbal and the IMU, while the bottom board is responsible for the chassis and the referee system.
+// 这个函数主要是定义了两个类，TopBoard和BottomBoard，分别对应英雄机器人中的两个控制板。每个控制板都继承自librmcs::client::CBoard，并且包含了与该控制板相关的设备和功能。
+// TopBoard类包含了IMU、云台电机、摩擦轮等设备，并且实现了CAN总线和DBUS的接收回调函数，用于处理来自这些设备的数据。
+// can总线回调函数会根据CAN ID来区分不同的设备，并将接收到的数据存储到对应的设备对象中。DBUS回调函数则是处理来自遥控器的数据。
     class TopBoard final : private librmcs::client::CBoard {
     public:
         friend class Hero;
@@ -101,9 +105,13 @@ private:
             , gimbal_pitch_motor_(
                   hero, hero_command, "/gimbal/pitch",
                   device::DmMotor::Config{device::DmMotor::Type::J4310}
+                //  继承自DmMotor的Config类，设置电机类型为J4310，并且设置编码器零点为参数服务器中定义的pitch_motor_zero_point参数的值，同时设置电机反转。
                       .set_encoder_zero_point(
                           static_cast<int>(hero.get_parameter("pitch_motor_zero_point").as_int()))
                       .set_reversed())
+                    //   定义了一个gimbal_pitch_motor_对象，表示云台的俯仰电机。这个电机使用了DmMotor类，并且配置了电机类型、编码器零点和反转等参数。
+                    // 摩擦轮是用来增加云台的阻尼的，可以让云台在受到外力作用时更稳定。这个代码定义了三个摩擦轮，分别对应云台的三个轴向，每个摩擦轮都是一个DjiMotor对象，并且配置了电机类型、减速比和反转等参数。
+
             , gimbal_friction_wheels_(
                   {hero, hero_command, "/gimbal/first_friction",
                    device::DjiMotor::Config{device::DjiMotor::Type::M3508}
@@ -113,11 +121,19 @@ private:
                    device::DjiMotor::Config{device::DjiMotor::Type::M3508}.set_reduction_ratio(1.)},
                   {hero, hero_command, "/gimbal/third_friction",
                    device::DjiMotor::Config{device::DjiMotor::Type::M3508}
-                       .set_reduction_ratio(1.)
-                       .set_reversed()})
+                       .set_reduction_ratio(1.)//设置减速比为1
+                       .set_reversed()})//设置反转
             , transmit_buffer_(*this, 32)
+            //定义了一个transmit_buffer_对象，用于存储要发送的数据。
+            // 这个对象是CBoard类的成员，构造函数中传入了当前对象和缓冲区大小。
+            // 最后，定义了一个event_thread_线程，用于处理事件循环。
+            // 这个线程会调用handle_events()函数来处理来自设备的数据，并且在析构函数中会停止事件处理并等待线程结束。
             , event_thread_([this]() { handle_events(); }) {
-
+            // 在构造函数中，我们首先设置了IMU的坐标映射关系。
+            // 由于IMU的数据是相对于IMU坐标系的，而我们需要将其转换到云台坐标系下，所以我们通过set_coordinate_mapping函数来设置这个转换关系。
+            // 由于这个转换关系可能比较复杂，所以我们允许用户传入一个函数来定义这个转换关系
+            // 这个函数接受三个参数，分别是IMU坐标系下的x、y、z轴的数据，返回一个tuple，包含了转换到云台坐标系下的x、y、z轴的数据。
+            // 在这个函数内部，我们会调用用户传入的mapping_function来进行坐标转换，并将转换后的数据返回给调用者。
             imu_.set_coordinate_mapping([](double x, double y, double z) {
                 // Get the mapping with the following code.
                 // The rotation angle must be an exact multiple of 90 degrees, otherwise use a
@@ -223,11 +239,9 @@ private:
         void dbus_receive_callback(const std::byte* uart_data, uint8_t uart_data_length) override {
             dr16_.store_status(uart_data, uart_data_length);
         }
-
         void accelerometer_receive_callback(int16_t x, int16_t y, int16_t z) override {
             imu_.store_accelerometer_status(x, y, z);
         }
-
         void gyroscope_receive_callback(int16_t x, int16_t y, int16_t z) override {
             imu_.store_gyroscope_status(x - imu_bias_x, y - imu_bias_y, z - imu_bias_z);
         }
@@ -349,7 +363,7 @@ private:
                 0x2, gimbal_yaw_motor_.generate_torque_command());
 
             transmit_buffer_.trigger_transmission();
-            // RCLCPP_INFO(
+            // RCLCPP_INFO(referee_serial_
             //     rclcpp::get_logger("MOTOR"), "send command: %d, %d, %d, %d", batch_commands[0],
             //     batch_commands[1], batch_commands[2], batch_commands[3]);
         }
