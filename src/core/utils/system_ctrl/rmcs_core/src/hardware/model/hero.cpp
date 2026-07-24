@@ -63,10 +63,7 @@ public:
         top_board_->command_update();
         bottom_board_->command_update();
     }
-// 这是云台的控制程序包括日志输出和状态更新
 private:
-// 这个函数主要是定义了两个类，TopBoard和BottomBoard，分别对应英雄机器人中的两个控制板。
-// 每个控制板都继承自librmcs::client::CBoard，并且包含了与该控制板相关的设备和功能。
     void gimbal_calibrate_subscription_callback(std_msgs::msg::Int32::UniquePtr) {
         RCLCPP_INFO(
             get_logger(), "[gimbal calibration] New yaw offset: %d",
@@ -75,7 +72,6 @@ private:
             get_logger(), "[gimbal calibration] New pitch offset: %d",
             top_board_->gimbal_pitch_motor_.calibrate_zero_point());
     }
-// TopBoard类包含了IMU、云台电机、摩擦轮等设备，并且实现了CAN总线和DBUS的接收回调函数，用于处理来自这些设备的数据。
     class HeroCommand : public rmcs_executor::Component {
     public:
         explicit HeroCommand(Hero& hero)
@@ -86,10 +82,6 @@ private:
         Hero& hero_;
     };
     std::shared_ptr<HeroCommand> command_component_;
-// The top board is responsible for the gimbal and the IMU, while the bottom board is responsible for the chassis and the referee system.
-// 这个函数主要是定义了两个类，TopBoard和BottomBoard，分别对应英雄机器人中的两个控制板。每个控制板都继承自librmcs::client::CBoard，并且包含了与该控制板相关的设备和功能。
-// TopBoard类包含了IMU、云台电机、摩擦轮等设备，并且实现了CAN总线和DBUS的接收回调函数，用于处理来自这些设备的数据。
-// can总线回调函数会根据CAN ID来区分不同的设备，并将接收到的数据存储到对应的设备对象中。DBUS回调函数则是处理来自遥控器的数据。
     class TopBoard final : private librmcs::client::CBoard {
     public:
         friend class Hero;
@@ -105,12 +97,9 @@ private:
             , gimbal_pitch_motor_(
                   hero, hero_command, "/gimbal/pitch",
                   device::DmMotor::Config{device::DmMotor::Type::J4310}
-                //  继承自DmMotor的Config类，设置电机类型为J4310，并且设置编码器零点为参数服务器中定义的pitch_motor_zero_point参数的值，同时设置电机反转。
                       .set_encoder_zero_point(
                           static_cast<int>(hero.get_parameter("pitch_motor_zero_point").as_int()))
                       .set_reversed())
-                    //   定义了一个gimbal_pitch_motor_对象，表示云台的俯仰电机。这个电机使用了DmMotor类，并且配置了电机类型、编码器零点和反转等参数。
-                    // 摩擦轮是用来增加云台的阻尼的，可以让云台在受到外力作用时更稳定。这个代码定义了三个摩擦轮，分别对应云台的三个轴向，每个摩擦轮都是一个DjiMotor对象，并且配置了电机类型、减速比和反转等参数。
 
             , gimbal_friction_wheels_(
                   {hero, hero_command, "/gimbal/first_friction",

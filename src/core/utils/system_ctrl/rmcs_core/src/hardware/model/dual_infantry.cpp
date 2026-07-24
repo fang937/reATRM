@@ -38,32 +38,18 @@ public:
     DualInfantry()
         : Node{
               get_component_name(),
-            //   得到组件的名字，并将其作为ROS2节点的名字，这样就可以在ROS2系统中唯一标识这个组件。
               rclcpp::NodeOptions{}.automatically_declare_parameters_from_overrides(true)}
-            // 自动声明参数，这样就可以通过ROS2的参数服务器来设置组件的参数，
-            // 而不需要在代码中显式地声明每个参数。
               , command_component_(
-                // 创建一个DualInfantryCommand组件，
-                // 这个组件的update函数会调用DualInfantry的command_update函数，
-                // 这样就可以在系统控制器的主循环中定期调用DualInfantry的
-                // command_update函数来发送命令。
               create_partner_component<DualInfantryCommand>(
                   get_component_name() + "_command", *this)) {
         using namespace rmcs_description;
-// 在构造函数中，DualInfantry注册了一个输出接口"/tf"，用于发布TF变换信息。
         register_output("/tf", tf_);
         tf_->set_transform<PitchLink, CameraLink>(Eigen::Translation3d{0.084, 0.0, 0.048});
         tf_->set_transform<PitchLink, MuzzleLink>(Eigen::Translation3d{0.0, 0.0, 0.0});
-// DualInfantry还订阅了一个话题"/gimbal/calibrate"，用于接收云台校准的命令。
-// 当收到这个命令时，DualInfantry会调用两个IMU和云台电机的校准函数，并将新的零点偏移打印出来。
-// 这个功能可以让用户通过发布一个简单的整数消息来校准云台的位置，方便使用和调试。
         gimbal_calibrate_subscription_ = create_subscription<std_msgs::msg::Int32>(
             "/gimbal/calibrate", rclcpp::QoS{0}, [this](std_msgs::msg::Int32::UniquePtr&& msg) {
                 gimbal_calibrate_subscription_callback(std::move(msg));
             });
-// DualInfantry的构造函数最后创建了两个主控板对象，分别对应步兵2号和步兵3号，并将它们的指针保存在成员变量中。
-// 这两个主控板对象的构造函数会根据传入的USB PID来初始化与主控板的通信，并配置各自的设备和输出接口。
-// DualInfantry的update函数会调用两个主控板的update函数来更新它们的状态，而command_update函数会调用它们的command_update函数来发送命令。
         top_board_ = std::make_unique<TopBoard>(
             *this, *command_component_,
             static_cast<int>(get_parameter("usb_pid_top_board").as_int()));
@@ -83,19 +69,15 @@ public:
         top_board_->command_update();
         bottom_board_->command_update();
     }
-// DualInfantry的update函数会调用两个主控板的update函数来更新它们的状态，而command_update函数会调用它们的command_update函数来发送命令。
 private:
     void gimbal_calibrate_subscription_callback(std_msgs::msg::Int32::UniquePtr) {
         RCLCPP_INFO(
-            // 调用两个IMU和云台电机的校准函数，并将新的零点偏移打印出来。
             get_logger(), "[gimbal calibration] New yaw offset: %d",
             bottom_board_->gimbal_bottom_yaw_motor_.calibrate_zero_point());
         RCLCPP_INFO(
-            // 这个功能可以让用户通过发布一个简单的整数消息来校准云台的位置，方便使用和调试。
             get_logger(), "[gimbal calibration] New yaw offset: %d",
             top_board_->gimbal_top_yaw_motor_.calibrate_zero_point());
         RCLCPP_INFO(
-            // 调用两个IMU和云台电机的校准函数，并将新的零点偏移打印出来。
             get_logger(), "[gimbal calibration] New pitch offset: %d",
             top_board_->gimbal_pitch_motor_.calibrate_zero_point());
     }
@@ -110,7 +92,6 @@ private:
         DualInfantry& dual_infantry_;
     };
     std::shared_ptr<DualInfantryCommand> command_component_;
-// DualInfantryCommand是一个内部组件类，它的update函数会调用DualInfantry的command_update函数来发送命令。
 
     class TopBoard final : private librmcs::client::CBoard {
     public:
@@ -183,7 +164,6 @@ private:
             stop_handling_events();
             event_thread_.join();
         }
-// TopBoard的update函数会定期被系统控制器调用，在这个函数中可以更新组件的状态，读取传感器数据，并发布TF变换信息。
         void update() {
             imu_.update_status();
             gimbal_top_yaw_motor_.update_status();
@@ -213,7 +193,6 @@ private:
             gimbal_right_friction_.update_status();
             gimbal_bullet_feeder_.update_status();
         }
-// TopBoard的command_update函数会定期被系统控制器调用，在这个函数中可以发送命令给设备，如电机和蜂鸣器。
         void command_update() {
             uint16_t can_commands[4];
 
@@ -238,7 +217,6 @@ private:
         }
 
     private:
-// can1_receive_callback函数会被调用当收到CAN1总线上的消息时，根据消息的ID来更新对应设备的状态。
     void can1_receive_callback(
             uint32_t can_id, uint64_t can_data, bool is_extended_can_id,
             bool is_remote_transmission, uint8_t can_data_length) override {
@@ -270,15 +248,12 @@ private:
         void dbus_receive_callback(const std::byte* uart_data, uint8_t uart_data_length) override {
             dr16_.store_status(uart_data, uart_data_length);
         }
-// uart1_receive_callback函数会被调用当收到UART1接口上的数据时，根据数据内容来更新对应设备的状态，或者触发某些操作。
         void uart2_receive_callback(const std::byte* data, uint8_t length) override {
             gy614_.store_status(data, length);
         }
-// 加速度计接收回调函数
         void accelerometer_receive_callback(int16_t x, int16_t y, int16_t z) override {
             imu_.store_accelerometer_status(x, y, z);
         }
-// 陀螺仪接收回调函数
         void gyroscope_receive_callback(int16_t x, int16_t y, int16_t z) override {
             imu_.store_gyroscope_status(x - imu_bias_x, y - imu_bias_y, z - imu_bias_z);
         }
