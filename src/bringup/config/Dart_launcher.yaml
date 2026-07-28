@@ -9,10 +9,10 @@ rmcs_executor:
 
       - rmcs_core::controller::shooting::shooting_dartController -> shooting_dart_controller
       
-      - rmcs_core::controller::pid::ErrorPidController -> left_angle_pid_controller
+      - rmcs_core::controller::pid::PidController -> left_angle_pid_controller
       - rmcs_core::controller::pid::PidController -> left_velocity_pid_controller
 
-      - rmcs_core::controller::pid::ErrorPidController -> right_angle_pid_controller
+      - rmcs_core::controller::pid::PidController -> right_angle_pid_controller
       - rmcs_core::controller::pid::PidController -> right_velocity_pid_controller
     
       - rmcs_core::broadcaster::ValueBroadcaster -> value_broadcaster
@@ -51,7 +51,7 @@ shooting_dart_controller:
   ros__parameters:
     left_motor_velocity_limit: 20.0
     right_motor_velocity_limit: 20.0
-    serco_angle_limit: 180.0
+    servo_angle_limit: 180.0
 
     joystick_left_bias_y: 0.0
     joystick_sensitivity: 0.004
@@ -64,11 +64,11 @@ shooting_dart_controller:
 left_velocity_pid_controller:
   ros__parameters:
     measurement: /trigger/left_motor/velocity
-    setpoint: 6.28
+    setpoint: /trigger/left_motor/control_velocity
     control: /trigger/left_motor/control_torque
     enable: /trigger/left_motor/alive
-    kp: 0.1
-    ki: 0.0
+    kp: 1.0
+    ki: 0.00
     kd: 0.0
     max_output: 0.2
     min_output: -0.2
@@ -80,9 +80,9 @@ left_angle_pid_controller:
     setpoint: /trigger/left_motor/control_angle
     control: /trigger/left_motor/control_velocity
     enable: /trigger/left_motor/alive
-    kp: 0.1
-    ki: 0.0
-    kd: 0.0
+    kp: 9.0
+    ki: 0.00
+    kd: 0.00
     max_output: 5.0
     min_output: -5.0
 
@@ -90,11 +90,11 @@ left_angle_pid_controller:
 right_velocity_pid_controller:
   ros__parameters:
     measurement: /trigger/right_motor/velocity
-    setpoint: 6.28
+    setpoint: /trigger/right_motor/control_velocity
     control: /trigger/right_motor/control_torque
     enable: /trigger/right_motor/alive
-    kp: 0.1
-    ki: 0.0
+    kp: 1.0
+    ki: 0.000
     kd: 0.0
     max_output: 0.2
     min_output: -0.2
@@ -105,8 +105,8 @@ right_angle_pid_controller:
     setpoint: /trigger/right_motor/control_angle
     control: /trigger/right_motor/control_velocity
     enable: /trigger/right_motor/alive
-    kp: 0.1
-    ki: 0.0
+    kp: 9.0
+    ki: 0.000
     kd: 0.0
     max_output: 5.0
     min_output: -5.0   

@@ -1,6 +1,4 @@
 #include <cmath>
-#include <limits>
-#include <rmcs_msgs/dart_shooting_mode.hpp>
 #include <eigen3/Eigen/Dense>
 #include <eigen3/Eigen/src/Core/Matrix.h>
 #include <eigen3/Eigen/src/Geometry/Rotation2D.h>
@@ -8,6 +6,7 @@
 #include <rclcpp/node.hpp>
 #include <rclcpp/node_options.hpp>
 #include <rmcs_executor/component.hpp>
+#include <rmcs_msgs/dart_shooting_mode.hpp>
 #include <rmcs_msgs/keyboard.hpp>
 #include <rmcs_msgs/mouse.hpp>
 #include <rmcs_msgs/switch.hpp>
@@ -24,8 +23,6 @@ public:
         : Node(
               get_component_name(),
               rclcpp::NodeOptions{}.automatically_declare_parameters_from_overrides(true)) {
-        get_parameter("joystick_left_bias_y", joystick_left_bias_y_);
-        get_parameter("joystick_sensitivity", joystick_sensitivity_);
         register_input("/remote/joystick/right", joystick_right_);
         register_input("/remote/joystick/left", joystick_left_);
         register_input("/remote/switch/left", switch_left_);
@@ -55,8 +52,7 @@ public:
         using namespace rmcs_msgs;
         auto switch_right = *switch_right_;
         auto switch_left = *switch_left_;
-
-        if(!target_angle_initialized_){
+        if (!target_angle_initialized_) {
             trigger_motor_target_angle[0] = (*trigger_motor_angle_[0]);
             trigger_motor_target_angle[1] = (*trigger_motor_angle_[1]);
 
@@ -64,57 +60,69 @@ public:
             *trigger_motor_control_angle[1] = (trigger_motor_target_angle[1]);
 
             target_angle_initialized_ = true;
-        }
-        const bool remote_unavailable =
-            switch_left == Switch::UNKNOWN
-            || switch_right == Switch::UNKNOWN;
-
-        const bool controls_disabled =
-            switch_left == Switch::DOWN
-            && switch_right == Switch::DOWN;
-            
-        
-            if ((remote_unavailable)|| (controls_disabled)) {
-                reset_all_controls();
-                last_switch_right_ = switch_right;
-                last_switch_left_ = switch_left;
-                return;
-                
-            } 
-            auto mode = *mode_;
-            if (switch_left != Switch::DOWN) {
-                if (last_switch_right_ == Switch::MIDDLE && switch_right == Switch::DOWN) {
-                    if (mode == rmcs_msgs::dart_shooting_mode::RELOAD) {
-                        mode = rmcs_msgs::dart_shooting_mode::STEP_DOWN;
-                    } else {
-                        mode = rmcs_msgs::dart_shooting_mode::RELOAD;
-                    }
-                }
-                if(switch_left == Switch::MIDDLE && switch_right == Switch::UP){
-                    mode = rmcs_msgs::dart_shooting_mode::SHOOT;
-                }
-                *mode_ = mode;
-            }
             last_switch_right_ = switch_right;
             last_switch_left_ = switch_left;
+            return;
+        }
+        const bool remote_unavailable =
+            switch_left == Switch::UNKNOWN || switch_right == Switch::UNKNOWN;
 
-      
+        const bool controls_disabled = switch_left == Switch::DOWN && switch_right == Switch::DOWN;
 
-       const double control_angle = ((*joystick_left_).y() - joystick_left_bias_y_ )*joystick_sensitivity_;
-    
-        trigger_motor_target_angle[0] += control_angle;
-        trigger_motor_target_angle[1] -= control_angle;
-        *trigger_motor_control_angle[0] = trigger_motor_target_angle[0];
-        *trigger_motor_control_angle[1] = trigger_motor_target_angle[1];
+        if (remote_unavailable) {
+            reset_all_controls();
+            last_switch_right_ = switch_right;
+            last_switch_left_ = switch_left;
+            return;
+        }
+
+        auto mode = *mode_;
+        if (!controls_disabled && switch_left != Switch::DOWN) {
+            if (last_switch_right_ != Switch::MIDDLE && switch_right == Switch::MIDDLE) {
+                if (mode == rmcs_msgs::dart_shooting_mode::RELOAD) {
+                    mode = rmcs_msgs::dart_shooting_mode::STEP_DOWN;
+                } else {
+                    mode = rmcs_msgs::dart_shooting_mode::RELOAD;
+                }
+            }
+            if (switch_left == Switch::MIDDLE && switch_right == Switch::UP) {
+                mode = rmcs_msgs::dart_shooting_mode::SHOOT;
+            }
+            *mode_ = mode;
+        }
+
+        double left_y = (*joystick_left_).y() - joystick_left_bias_y_;
+        if (std::abs(left_y) < joystick_deadzone_)
+            left_y = 0.0;
+
+        const double control_angle = left_y * joystick_sensitivity_;
+
+        trigger_motor_target_angle[0] -= control_angle;
+        trigger_motor_target_angle[1] += control_angle;
+        // for (int i = 0; i < 2; ++i) {
+        //     if (trigger_motor_target_angle[i] > M_PI) {
+        //         trigger_motor_target_angle[i] = -2 * M_PI + trigger_motor_target_angle[i];
+        //     } else if (trigger_motor_target_angle[i] < -M_PI) {
+        //         trigger_motor_target_angle[i] = 2 * M_PI + trigger_motor_target_angle[i];
+        //     }
+        //     *trigger_motor_control_angle[i] =
+        //         trigger_motor_target_angle[i] - (*trigger_motor_angle_[i] - M_PI);
+        //     if (*trigger_motor_control_angle[i] > M_PI) {
+        //         *trigger_motor_control_angle[i] = -2 * M_PI + *trigger_motor_control_angle[i];
+        //     } else if (*trigger_motor_control_angle[i] < -M_PI) {
+        //         *trigger_motor_control_angle[i] = 2 * M_PI + *trigger_motor_control_angle[i];
+        //     }
+        // }
+        *trigger_motor_control_angle[0] = trigger_motor_target_angle[0] ;
+        *trigger_motor_control_angle[1] = trigger_motor_target_angle[1] ;
+
+        last_switch_right_ = switch_right;
+        last_switch_left_ = switch_left;
     }
 
     void reset_all_controls() { *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT; }
 
-
 private:
-    static constexpr double inf = std::numeric_limits<double>::infinity();
-    static constexpr double nan = std::numeric_limits<double>::quiet_NaN();
-
     InputInterface<Eigen::Vector2d> joystick_right_;
     InputInterface<Eigen::Vector2d> joystick_left_;
     InputInterface<rmcs_msgs::Switch> switch_right_;
@@ -124,21 +132,18 @@ private:
     // InputInterface<double> trigger_servo_error;
     OutputInterface<double> trigger_motor_control_angle[2];
 
-
     double trigger_motor_target_angle[2] = {0.0, 0.0};
     bool target_angle_initialized_ = false;
     rmcs_msgs::Switch last_switch_right_ = rmcs_msgs::Switch::UNKNOWN;
     rmcs_msgs::Switch last_switch_left_ = rmcs_msgs::Switch::UNKNOWN;
-    double joystick_sensitivity_ = 0.004;
+    double joystick_sensitivity_ = 0.016;
+    double joystick_deadzone_ = 0.5;
 
     OutputInterface<rmcs_msgs::dart_shooting_mode> mode_;
     double joystick_left_bias_y_ = 0.0;
-
 };
 
 } // namespace rmcs_core::controller::shooting
-
-
 
 #include <pluginlib/class_list_macros.hpp>
 

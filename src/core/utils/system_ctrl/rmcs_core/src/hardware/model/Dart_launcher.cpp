@@ -16,7 +16,7 @@
 #include <std_msgs/msg/int32.hpp>
 
 #include "hardware/device/bmi088.hpp"
-#include "hardware/device/buzzer.hpp"
+// #include "hardware/device/buzzer.hpp"
 #include "hardware/device/dji_motor.hpp"
 #include "hardware/device/dr16.hpp"
 #include "hardware/device/servo.hpp"
@@ -44,8 +44,6 @@ public:
                 trigger_calibrate_subscription_callback(std::move(msg));
             });
 
-
-       
         c_board_ = std::make_unique<CBoard>(
             *this, *command_component_,
             static_cast<int>(get_parameter("usb_pid_top_board").as_int()));
@@ -66,7 +64,8 @@ public:
 private:
     void trigger_calibrate_subscription_callback(std_msgs::msg::Int32::UniquePtr) {
         if (!c_board_) {
-            RCLCPP_WARN(get_logger(), "Trigger calibrate requested but top board is  unavailable."); return;
+            RCLCPP_WARN(get_logger(), "Trigger calibrate requested but top board is  unavailable.");
+            return;
         }
         RCLCPP_INFO(
             // 0为左 1为右
@@ -96,24 +95,24 @@ private:
             : librmcs::client::CBoard(usb_pid)
             , tf_(dart_launcher.tf_)
             , dr16_(dart_launcher)
-            , buzzer_(dart_launchercommand)
+            // , buzzer_(dart_launchercommand)
             , supercap_(dart_launcher, 28.5)
             , trigger_motor_(
                   {dart_launcher, dart_launchercommand, "/trigger/left_motor",
-                   device::DjiMotor::Config{device::DjiMotor::Type::GM6020}
-                          .set_encoder_zero_point(
-                              static_cast<int>(
-                                  dart_launcher.get_parameter("left_motor_zero_point").as_int()))
-                          .set_reduction_ratio(1.0 / 1.0)
-                        .set_reversed()
-                    },
-                  {
-                      dart_launcher, dart_launchercommand, "/trigger/right_motor",
-                      device::DjiMotor::Config{device::DjiMotor::Type::GM6020}
-                         .set_encoder_zero_point(
-                             static_cast<int>(
-                                 dart_launcher.get_parameter("right_motor_zero_point").as_int()))
-                         .set_reduction_ratio(1.0 / 1.0)
+                   device::DjiMotor::Config{device::DjiMotor::Type::M3508}
+                       .set_encoder_zero_point(
+                           static_cast<int>(
+                               dart_launcher.get_parameter("left_motor_zero_point").as_int()))
+                       .set_reduction_ratio(3591.0 / 187.0)
+                       .enable_multi_turn_angle()},
+                  {dart_launcher, dart_launchercommand, "/trigger/right_motor",
+                   device::DjiMotor::Config{device::DjiMotor::Type::M3508}
+                       .set_encoder_zero_point(
+                           static_cast<int>(
+                               dart_launcher.get_parameter("right_motor_zero_point").as_int()))
+                       .set_reduction_ratio(3591.0 / 187.0)
+                       .enable_multi_turn_angle()
+
                   })
             // 替换 CBoard 构造函数初始化列表中的旧代码
             , trigger_servo_(
@@ -154,7 +153,7 @@ private:
                 motor.update_status();
             supercap_.update_status();
             dr16_.update_status();
-            buzzer_.update_status();
+            // buzzer_.update_status();
 
             fast_tf::rcl::broadcast_all(*tf_);
         }
@@ -165,9 +164,9 @@ private:
             batch_commands[1] = trigger_motor_[1].generate_command();
             batch_commands[2] = 0;
             batch_commands[3] = 0;
-            transmit_buffer_.add_can1_transmission(0x1FF, std::bit_cast<uint64_t>(batch_commands));
+            transmit_buffer_.add_can1_transmission(0x200, std::bit_cast<uint64_t>(batch_commands));
 
-            transmit_buffer_.add_buzzer_transmission(buzzer_.generate_command());
+            // transmit_buffer_.add_buzzer_transmission(buzzer_.generate_command());
 
             transmit_buffer_.trigger_transmission();
         }
@@ -179,17 +178,15 @@ private:
             if (is_extended_can_id || is_remote_transmission || can_data_length < 8) [[unlikely]]
                 return;
 
-            if (can_id == 0x205) {
+            if (can_id == 0x201) {
                 trigger_motor_[0].store_status(can_data);
-                
-            } else if (can_id == 0x206) {
+
+            } else if (can_id == 0x202) {
                 trigger_motor_[1].store_status(can_data);
             } else if (can_id == 0x203) {
-                uint8_t rx_data_0 = static_cast<uint8_t>(can_data & 0XFF);
-                trigger_servo_.handle_switch_cmd(rx_data_0, [](uint16_t /*pwm*/) {
-                });
-            } 
-            else if (can_id == 0x20c) {
+                uint8_t rx_data_0 = static_cast<uint8_t>(can_data & 0X200);
+                trigger_servo_.handle_switch_cmd(rx_data_0, [](uint16_t /*pwm*/) {});
+            } else if (can_id == 0x20c) {
                 supercap_.store_status(can_data);
             }
         }
@@ -202,9 +199,8 @@ private:
         }
         void gyroscope_receive_callback(int16_t x, int16_t y, int16_t z) override {
             imu_.store_gyroscope_status(x - imu_bias_x, y - imu_bias_y, z - imu_bias_z);
-         }
-        void uart1_receive_callback(const std::byte* uart_data, uint8_t uart_data_length)
-        override {
+        }
+        void uart1_receive_callback(const std::byte* uart_data, uint8_t uart_data_length) override {
             referee_ring_buffer_receive_.emplace_back_multi(
                 [&uart_data](std::byte* storage) { *storage = *uart_data++; }, uart_data_length);
         }
@@ -212,7 +208,7 @@ private:
 
         device::Bmi088 imu_;
         device::Dr16 dr16_;
-        device::Buzzer buzzer_;
+        // device::Buzzer buzzer_;
         device::Supercap supercap_;
         int16_t imu_bias_x, imu_bias_y, imu_bias_z = 0.0;
         librmcs::utility::RingBuffer<std::byte> referee_ring_buffer_receive_{256};
