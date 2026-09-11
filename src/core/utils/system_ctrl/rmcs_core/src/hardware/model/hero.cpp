@@ -113,16 +113,7 @@ private:
                        .set_reduction_ratio(1.)//设置减速比为1
                        .set_reversed()})//设置反转
             , transmit_buffer_(*this, 32)
-            //定义了一个transmit_buffer_对象，用于存储要发送的数据。
-            // 这个对象是CBoard类的成员，构造函数中传入了当前对象和缓冲区大小。
-            // 最后，定义了一个event_thread_线程，用于处理事件循环。
-            // 这个线程会调用handle_events()函数来处理来自设备的数据，并且在析构函数中会停止事件处理并等待线程结束。
             , event_thread_([this]() { handle_events(); }) {
-            // 在构造函数中，我们首先设置了IMU的坐标映射关系。
-            // 由于IMU的数据是相对于IMU坐标系的，而我们需要将其转换到云台坐标系下，所以我们通过set_coordinate_mapping函数来设置这个转换关系。
-            // 由于这个转换关系可能比较复杂，所以我们允许用户传入一个函数来定义这个转换关系
-            // 这个函数接受三个参数，分别是IMU坐标系下的x、y、z轴的数据，返回一个tuple，包含了转换到云台坐标系下的x、y、z轴的数据。
-            // 在这个函数内部，我们会调用用户传入的mapping_function来进行坐标转换，并将转换后的数据返回给调用者。
             imu_.set_coordinate_mapping([](double x, double y, double z) {
                 // Get the mapping with the following code.
                 // The rotation angle must be an exact multiple of 90 degrees, otherwise use a

@@ -14,31 +14,49 @@ rmcs_executor:
 
       - rmcs_core::controller::pid::PidController -> right_angle_pid_controller
       - rmcs_core::controller::pid::PidController -> right_velocity_pid_controller
+      - rmcs_core::controller::pid::PidController -> yaw_motor_angle_pid_controller
+      - rmcs_core::controller::pid::PidController -> yaw_motor_velocity_pid_controller
+      - rmcs_core::controller::pid::PidController -> distance_motor_angle_pid_controller
+      - rmcs_core::controller::pid::PidController -> distance_motor_velocity_pid_controller
     
       - rmcs_core::broadcaster::ValueBroadcaster -> value_broadcaster
       - rmcs_core::controller::diagnosis::Diagnosis -> diagnosis
 value_broadcaster:
   ros__parameters:
     forward_list:
-    - /trigger/left_motor/angle
-    - /trigger/right_motor/angle
-    
-                    
-
-    - /trigger/right_motor/control_angle
-    - /trigger/left_motor/control_angle
-
-    - /trigger/right_motor/control_velocity
-    - /trigger/left_motor/control_velocity
-
-    - /trigger/right_motor/control_torque
-    - /trigger/left_motor/control_torque
+      - /trigger/left_motor/angle
+      - /trigger/right_motor/angle
+      - /trigger/left_motor/control_angle
+      - /trigger/right_motor/control_angle
+      - /trigger/left_motor/control_velocity
+      - /trigger/right_motor/control_velocity
+      - /trigger/left_motor/control_torque
+      - /trigger/right_motor/control_torque
+      - /yaw_motor/velocity
+      - /yaw_motor/angle
+      - /yaw_motor/control_angle
+      - /yaw_motor/control_velocity
+      - /yaw_motor/control_torque
+      - /distance_motor/velocity
+      - /distance_motor/angle
+      - /distance_motor/control_angle
+      - /distance_motor/control_velocity
+      - /distance_motor/control_torque
+      - /trigger/servo/servo_1/angle
+      - /trigger/servo/servo_2/angle
+      - /trigger/servo/servo_3/angle
+      - /trigger/servo/servo_4/angle
+      - /trigger/servo/servo_5/angle
+      - /trigger/servo/servo_6/angle
+      - /trigger/servo/servo_7/angle
 
 Dart_launcher_hardware:
   ros__parameters:
     usb_pid_top_board: 0x7b4e
     left_motor_zero_point: 0
     right_motor_zero_point: 0
+    yaw_motor_zero_point: 0
+    distance_motor_zero_point: 0
 
     imu_bias_x: 1
     imu_bias_y: 3
@@ -51,15 +69,77 @@ shooting_dart_controller:
   ros__parameters:
     left_motor_velocity_limit: 20.0
     right_motor_velocity_limit: 20.0
+    yaw_motor_velocity_limit: 10.0
+    distance_motor_velocity_limit: 10.0
     servo_angle_limit: 180.0
+    # FIRE uses mask 0x01, so only servo_1 is driven to the firing position.
+    # Keep the other servos at their safe position to avoid unintended motion.
+    servo_fire_angles: [180.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
+    servo_safe_angles: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # Reload positions are independent from the safe position.
+    servo_reload1_angles: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
+    servo_reload2_angles: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
+    servo_reload3_angles: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
 
     joystick_left_bias_y: 0.0
     joystick_sensitivity: 0.004
-
+    switch_debounce_ticks: 20
+    fire_position_tolerance: 0.05
 
     depond_motors:
      - /trigger/left_motor
      - /trigger/right_motor
+     - /yaw_motor
+     - /distance_motor
+
+
+yaw_motor_velocity_pid_controller:
+  ros__parameters:
+    measurement: /yaw_motor/velocity
+    setpoint: /yaw_motor/control_velocity
+    control: /yaw_motor/control_torque
+    enable: /yaw_motor/alive
+    kp: 5.0
+    ki: 0.0
+    kd: 0.0
+    max_output: 0.2
+    min_output: -0.2
+
+distance_motor_velocity_pid_controller:
+  ros__parameters:
+    measurement: /distance_motor/velocity
+    setpoint: /distance_motor/control_velocity
+    control: /distance_motor/control_torque
+    enable: /distance_motor/alive
+    kp: 1.0
+    ki: 0.0
+    kd: 0.0
+    max_output: 0.2
+    min_output: -0.2
+
+yaw_motor_angle_pid_controller:
+  ros__parameters:
+    measurement: /yaw_motor/angle
+    setpoint: /yaw_motor/control_angle
+    control: /yaw_motor/control_velocity
+    enable: /yaw_motor/alive
+    kp: 9.0
+    ki: 0.0
+    kd: 0.0
+    max_output: 5.0
+    min_output: -5.0
+
+distance_motor_angle_pid_controller:
+  ros__parameters:
+    measurement: /distance_motor/angle
+    setpoint: /distance_motor/control_angle
+    control: /distance_motor/control_velocity
+    enable: /distance_motor/alive
+    kp: 6.0
+    ki: 0.0
+    kd: 0.0
+    max_output: 5.0
+    min_output: -5.0
 
 left_velocity_pid_controller:
   ros__parameters:
@@ -67,7 +147,7 @@ left_velocity_pid_controller:
     setpoint: /trigger/left_motor/control_velocity
     control: /trigger/left_motor/control_torque
     enable: /trigger/left_motor/alive
-    kp: 1.0
+    kp: 2.0
     ki: 0.00
     kd: 0.0
     max_output: 0.2
@@ -93,7 +173,7 @@ right_velocity_pid_controller:
     setpoint: /trigger/right_motor/control_velocity
     control: /trigger/right_motor/control_torque
     enable: /trigger/right_motor/alive
-    kp: 1.0
+    kp: 2.0
     ki: 0.000
     kd: 0.0
     max_output: 0.2
@@ -112,11 +192,13 @@ right_angle_pid_controller:
     min_output: -5.0   
 
 
-Diagnosis:
+diagnosis:
   ros__parameters:
     motors:
     - /trigger/left_motor
     - /trigger/right_motor
+    - /yaw_motor
+    - /distance_motor
 
     enable_motor_check: true
     enable_supercap_check: false
