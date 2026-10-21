@@ -57,6 +57,12 @@ public:
         get_parameter("joystick_left_bias_y", joystick_left_bias_y_);
         get_parameter("joystick_sensitivity", joystick_sensitivity_);
         get_parameter("switch_debounce_ticks", switch_debounce_ticks_);
+        get_parameter("servo_reload1_duration_ticks", reload_duration_ticks_[0]);
+        get_parameter("servo_reload2_duration_ticks", reload_duration_ticks_[1]);
+        get_parameter("servo_reload3_duration_ticks", reload_duration_ticks_[2]);
+        get_parameter("servo_reload_first_duration_ticks", reload_first_duration_ticks_);
+        get_parameter("servo_reload_third_duration_ticks", reload_third_duration_ticks_);
+        get_parameter("servo_reload_fourth_duration_ticks", reload_fourth_duration_ticks_);
         load_servo_angles("servo_fire_angles", servo_fire_angle_);
         load_servo_angles("servo_safe_angles", servo_safe_angle_);
         load_servo_angles("servo_reload1_angles", servo_reload1_angle_);
@@ -117,6 +123,7 @@ public:
         *yaw_motor_control_angle_ = yaw_motor_target_angle_;
         *distance_motor_control_angle_ = distance_motor_target_angle_;
         update_action_feedback();
+        update_reload_motion();
         update_fire_hold(switch_left);
 
         if (safety_locked_ && !fault_latched_
@@ -139,7 +146,7 @@ public:
             RCLCPP_INFO(get_logger(), "Trigger motors state: position control");
         }
 
-        const double control_angle = left_y * joystick_sensitivity_;
+        const double control_angle = 2*left_y * joystick_sensitivity_;
 
         trigger_motor_target_angle[0] -= control_angle;
         trigger_motor_target_angle[1] += control_angle;
@@ -213,6 +220,7 @@ private:
         set_servo_angles(servo_safe_angle_, 0x7f);
 
         waiting_for_completion_ = false;
+        reload_ticks_remaining_ = 0;
         fire_hold_active_ = false;
         const bool was_locked = safety_locked_;
         safety_locked_ = true;
@@ -266,7 +274,7 @@ private:
         action_timeout_remaining_ = action_timeout_ticks_;
         response_sequence_before_action_ = *servo_response_sequence_;
         fire_hold_active_ = false;
-        ++fire_request_sequence_;
+        *fire_request_sequence_ = static_cast<std::uint8_t>(*fire_request_sequence_ + 1);
         constexpr std::uint8_t fire_servo_mask = 0x01;
         set_servo_angles(servo_fire_angle_, fire_servo_mask);
         RCLCPP_INFO(
@@ -334,22 +342,35 @@ private:
     void request_reload() {
         const auto stage = reload_count_ % 3;
         fire_hold_active_ = false;
+        reload_servo_mask_ = stage == 0 ? 0x06 : 0x0e;
         apply_reload_stage(stage);
+        const auto duration = reload_count_ == 0 ? reload_first_duration_ticks_
+            : reload_count_ == 2 ? reload_third_duration_ticks_
+            : reload_count_ == 3 ? reload_fourth_duration_ticks_
+                                 : reload_duration_ticks_[stage];
+        reload_ticks_remaining_ = std::max(1, duration);
         ++reload_count_;
         RCLCPP_INFO(
             get_logger(),
             "Dart reload #%zu: reload servos only, mask=0x%02x; servo_1 is unchanged",
             stage + 1,
-            stage == 0 ? 0x1e : stage == 1 ? 0x3e : 0x7e);
-        // Reload is a setpoint operation. Do not wait for a single response
-        // because unchanged setpoints may correctly produce no new frame.
+            reload_servo_mask_);
         waiting_action_ = ServoCommand::NONE;
         waiting_for_completion_ = false;
         fault_latched_ = false;
-        *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT;
+        *mode_ = rmcs_msgs::dart_shooting_mode::RELOAD;
         RCLCPP_INFO(
-            get_logger(),
-            "Dart reload command issued: firing control remains enabled, servo_1 unchanged");
+            get_logger(), "Dart reload started; selected servos will return to safe angles");
+    }
+
+    void update_reload_motion() {
+        if (reload_ticks_remaining_ <= 0)
+            return;
+        if (--reload_ticks_remaining_ > 0)
+            return;
+        set_servo_angles(servo_safe_angle_, reload_servo_mask_);
+        *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT;
+        RCLCPP_INFO(get_logger(), "Dart reload complete: servos returned to safe angles");
     }
 
     void rollback_reload() {
@@ -359,17 +380,19 @@ private:
         }
         --reload_count_;
         waiting_for_completion_ = false;
+        reload_ticks_remaining_ = 0;
         apply_reload_stage(reload_count_ % 3);
+        *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT;
         RCLCPP_WARN(get_logger(), "Dart reload rolled back to stage %zu", reload_count_ % 3 + 1);
     }
 
     void apply_reload_stage(std::size_t stage) {
         if (stage == 0)
-            set_servo_angles(servo_reload1_angle_, 0x1e);
+            set_servo_angles(servo_reload1_angle_, 0x06);
         else if (stage == 1)
-            set_servo_angles(servo_reload2_angle_, 0x3e);
+            set_servo_angles(servo_reload2_angle_, 0x0e);
         else
-            set_servo_angles(servo_reload3_angle_, 0x7e);
+            set_servo_angles(servo_reload3_angle_, 0x0e);
     }
 
     void set_servo_angles(const std::array<double, 7>& angles, std::uint8_t mask) {
@@ -417,6 +440,12 @@ private:
     int switch_stable_count_ = 0;
     int switch_debounce_ticks_ = 20;
     int action_timeout_ticks_ = 1500;
+    std::array<int, 3> reload_duration_ticks_{500, 500, 500};
+    int reload_first_duration_ticks_ = 2000;
+    int reload_third_duration_ticks_ = 4000;
+    int reload_fourth_duration_ticks_ = 4000;
+    int reload_ticks_remaining_ = 0;
+    std::uint8_t reload_servo_mask_ = 0;
     int action_timeout_remaining_ = 0;
     std::uint8_t response_sequence_before_action_ = 0;
     ServoCommand waiting_action_ = ServoCommand::NONE;
@@ -440,8 +469,8 @@ private:
 
     OutputInterface<rmcs_msgs::dart_shooting_mode> mode_;
     double joystick_left_bias_y_ = 0.0;
-    double yaw_motor_velocity_limit_ = 10.0;
-    double distance_motor_velocity_limit_ = 10.0;
+    double yaw_motor_velocity_limit_ = 40.0;
+    double distance_motor_velocity_limit_ = 40.0;
     double yaw_motor_target_angle_ = 0.0;
     double distance_motor_target_angle_ = 0.0;
     static constexpr double control_period_ = 0.001;

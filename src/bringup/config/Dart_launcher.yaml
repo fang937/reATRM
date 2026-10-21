@@ -67,15 +67,15 @@ Dart_launcher_hardware:
 
 shooting_dart_controller:
   ros__parameters:
-    left_motor_velocity_limit: 20.0
-    right_motor_velocity_limit: 20.0
+    left_motor_velocity_limit: 40.0
+    right_motor_velocity_limit: 40.0
     yaw_motor_velocity_limit: 10.0
     distance_motor_velocity_limit: 10.0
     servo_angle_limit: 180.0
     # FIRE uses mask 0x01, so only servo_1 is driven to the firing position.
     # Keep the other servos at their safe position to avoid unintended motion.
     servo_fire_angles: [180.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
-    servo_safe_angles: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    servo_safe_angles: [90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     # Reload positions are independent from the safe position.
     servo_reload1_angles: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     servo_reload2_angles: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
@@ -84,6 +84,12 @@ shooting_dart_controller:
     joystick_left_bias_y: 0.0
     joystick_sensitivity: 0.004
     switch_debounce_ticks: 20
+    servo_reload1_duration_ticks: 500
+    servo_reload2_duration_ticks: 500
+    servo_reload3_duration_ticks: 500
+    servo_reload_first_duration_ticks: 2000
+    servo_reload_third_duration_ticks: 4000
+    servo_reload_fourth_duration_ticks: 4000
     fire_position_tolerance: 0.05
 
     depond_motors:
