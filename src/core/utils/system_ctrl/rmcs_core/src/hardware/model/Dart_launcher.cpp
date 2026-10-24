@@ -92,7 +92,7 @@ private:
             : dart_launcher(dart_launcher) {
             register_input("/trigger/left_motor/release", left_motor_release_, false);
             register_input("/trigger/right_motor/release", right_motor_release_, false);
-            for (std::size_t index = 0; index < 7; ++index)
+            for (std::size_t index = 0; index < 4; ++index)
                 register_input(
                     "/trigger/servo/servo_" + std::to_string(index + 1) + "/angle",
                     servo_angle_[index]);
@@ -121,7 +121,7 @@ private:
     private:
         InputInterface<bool> left_motor_release_;
         InputInterface<bool> right_motor_release_;
-        InputInterface<double> servo_angle_[7];
+        InputInterface<double> servo_angle_[4];
         InputInterface<std::uint8_t> fire_request_sequence_;
     };
     std::shared_ptr<Dart_launcherCommend> command_component_;
@@ -172,7 +172,7 @@ private:
                        .enable_multi_turn_angle()})
             , transmit_buffer_(*this, 32)
             , event_thread_([this]() { handle_events(); }) {
-            for (std::size_t index = 0; index < 7; ++index) {
+            for (std::size_t index = 0; index < 4; ++index) {
                 debug_servo_angles_[index].store(std::numeric_limits<double>::quiet_NaN());
                 debug_servo_subscriptions_[index] =
                     dart_launcher.create_subscription<std_msgs::msg::Float64>(
@@ -194,6 +194,10 @@ private:
                                 index + 1, angle);
                         });
             }
+            for (std::size_t index = 0; index < 4; ++index)
+                dart_launcher.register_output(
+                    "/trigger/servo/servo_" + std::to_string(index + 1) + "/feedback_angle",
+                    servo_feedback_angle_[index], 0.0);
             RCLCPP_INFO(
                 rclcpp::get_logger("Dart_launcher"),
                 "Dart launcher USB board initialized: pid=0x%04x",
@@ -262,7 +266,7 @@ private:
             const auto fire_request_sequence = command_component_.fire_request_sequence();
             const bool fire_request_pending =
                 fire_request_sequence != last_fire_request_sequence_;
-            for (std::size_t index = 0; index < 7; ++index) {
+            for (std::size_t index = 0; index < 4; ++index) {
                 const auto debug_angle = debug_servo_angles_[index].load();
                 const auto servo_angle = normalize_servo_angle(
                     std::isfinite(debug_angle) ? debug_angle : command_component_.servo_angle(index));
@@ -314,7 +318,7 @@ private:
 
         void servo_receive_callback(const std::byte* data, uint8_t length) override {
             const auto id = length >= 6 ? static_cast<std::uint8_t>(data[5]) : 0;
-            if (id < 1 || id > 7) {
+            if (id < 1 || id > 4) {
                 RCLCPP_WARN(
                     rclcpp::get_logger("Dart_launcher"),
                     "Servo response rejected: length=%u id=%u", length, id);
@@ -326,6 +330,7 @@ private:
                     "Servo response rejected: id=%u length=%u", id, length);
                 return;
             }
+            *servo_feedback_angle_[id - 1] = servo_devices_[id - 1].angle();
             if (!pending_servo_command_[id - 1]
                 || !servo_devices_[id - 1].response_matches(
                     servo_devices_[id - 1].response_sequence(),
@@ -434,25 +439,23 @@ private:
         OutputInterface<uint8_t> servo_response_command_;
         OutputInterface<uint8_t> servo_response_status_;
         OutputInterface<uint8_t> servo_response_id_;
-        double last_servo_angle_[7] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        OutputInterface<double> servo_feedback_angle_[4];
+        double last_servo_angle_[4] = {0.0, 0.0, 0.0, 0.0};
         std::uint8_t servo_sequence_ = 0;
         std::uint8_t last_fire_request_sequence_ = 0;
-        std::uint8_t pending_servo_sequence_[7] = {};
-        bool pending_servo_command_[7] = {};
+        std::uint8_t pending_servo_sequence_[4] = {};
+        bool pending_servo_command_[4] = {};
         bool can_feedback_seen_[4] = {};
-        device::ServoProtocol servo_devices_[7] = {
+        device::ServoProtocol servo_devices_[4] = {
             device::ServoProtocol{device::ServoProtocol::Config{1}},
             device::ServoProtocol{device::ServoProtocol::Config{2}},
             device::ServoProtocol{device::ServoProtocol::Config{3}},
-            device::ServoProtocol{device::ServoProtocol::Config{4}},
-            device::ServoProtocol{device::ServoProtocol::Config{5}},
-            device::ServoProtocol{device::ServoProtocol::Config{6}},
-            device::ServoProtocol{device::ServoProtocol::Config{7}}};
+            device::ServoProtocol{device::ServoProtocol::Config{4}}};
 
         librmcs::client::CBoard::TransmitBuffer transmit_buffer_;
         std::thread event_thread_;
-        std::array<std::atomic<double>, 7> debug_servo_angles_;
-        std::array<rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr, 7>
+        std::array<std::atomic<double>, 4> debug_servo_angles_;
+        std::array<rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr, 4>
             debug_servo_subscriptions_;
     };
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr trigger_calibrate_subscription_;

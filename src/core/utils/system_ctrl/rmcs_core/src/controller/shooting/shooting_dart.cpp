@@ -32,7 +32,7 @@ public:
         register_input("/remote/joystick/left", joystick_left_);
         register_input("/remote/switch/left", switch_left_);
         register_input("/remote/switch/right", switch_right_);
-        for (std::size_t index = 0; index < 7; ++index)
+        for (std::size_t index = 0; index < servo_count_; ++index)
             register_output("/trigger/servo/servo_" + std::to_string(index + 1) + "/angle",
                 trigger_servo_angle_[index], 90.0);
         register_output("/trigger/servo/fire_request_sequence", fire_request_sequence_, 0);
@@ -57,17 +57,20 @@ public:
         get_parameter("joystick_left_bias_y", joystick_left_bias_y_);
         get_parameter("joystick_sensitivity", joystick_sensitivity_);
         get_parameter("switch_debounce_ticks", switch_debounce_ticks_);
-        get_parameter("servo_reload1_duration_ticks", reload_duration_ticks_[0]);
-        get_parameter("servo_reload2_duration_ticks", reload_duration_ticks_[1]);
-        get_parameter("servo_reload3_duration_ticks", reload_duration_ticks_[2]);
-        get_parameter("servo_reload_first_duration_ticks", reload_first_duration_ticks_);
-        get_parameter("servo_reload_third_duration_ticks", reload_third_duration_ticks_);
-        get_parameter("servo_reload_fourth_duration_ticks", reload_fourth_duration_ticks_);
+        get_parameter("servo_reload1_interval_ticks", reload_interval_ticks_[0]);
+        get_parameter("servo_reload2_interval_ticks", reload_interval_ticks_[1]);
+        get_parameter("servo_reload3_interval_ticks", reload_interval_ticks_[2]);
+        get_parameter("servo_fire_return_interval_ticks", fire_return_interval_ticks_);
         load_servo_angles("servo_fire_angles", servo_fire_angle_);
         load_servo_angles("servo_safe_angles", servo_safe_angle_);
-        load_servo_angles("servo_reload1_angles", servo_reload1_angle_);
-        load_servo_angles("servo_reload2_angles", servo_reload2_angle_);
-        load_servo_angles("servo_reload3_angles", servo_reload3_angle_);
+        load_servo_angles("servo_reload1_angles", servo_reload_angles_[0]);
+        load_servo_angles("servo_reload2_angles", servo_reload_angles_[1]);
+        load_servo_angles("servo_reload3_angles", servo_reload_angles_[2]);
+        load_servo_angles("servo_reload1_return_angles", servo_reload_return_angles_[0]);
+        load_servo_angles("servo_reload2_return_angles", servo_reload_return_angles_[1]);
+        load_servo_angles("servo_reload3_return_angles", servo_reload_return_angles_[2]);
+        load_servo_angles("servo_fire_return_angles", servo_fire_return_angles_);
+        set_servo_angles(servo_safe_angle_, servo_all_mask_);
         get_parameter("yaw_motor_velocity_limit", yaw_motor_velocity_limit_);
         get_parameter("distance_motor_velocity_limit", distance_motor_velocity_limit_);
     }
@@ -122,9 +125,9 @@ public:
         distance_motor_target_angle_ += distance_control_velocity * control_period_;
         *yaw_motor_control_angle_ = yaw_motor_target_angle_;
         *distance_motor_control_angle_ = distance_motor_target_angle_;
+        update_fire_return();
         update_action_feedback();
         update_reload_motion();
-        update_fire_hold(switch_left);
 
         if (safety_locked_ && !fault_latched_
             && switch_left != Switch::DOWN && switch_right != Switch::DOWN) {
@@ -217,11 +220,12 @@ private:
         *yaw_motor_control_angle_ = *yaw_motor_angle_;
         *distance_motor_control_angle_ = *distance_motor_angle_;
         *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT;
-        set_servo_angles(servo_safe_angle_, 0x7f);
+        set_servo_angles(servo_safe_angle_, servo_all_mask_);
 
         waiting_for_completion_ = false;
         reload_ticks_remaining_ = 0;
-        fire_hold_active_ = false;
+        fire_return_active_ = false;
+        fire_return_ticks_remaining_ = 0;
         const bool was_locked = safety_locked_;
         safety_locked_ = true;
         left_trigger_armed_ = false;
@@ -273,7 +277,8 @@ private:
         waiting_for_completion_ = true;
         action_timeout_remaining_ = action_timeout_ticks_;
         response_sequence_before_action_ = *servo_response_sequence_;
-        fire_hold_active_ = false;
+        fire_return_active_ = false;
+        fire_return_ticks_remaining_ = 0;
         *fire_request_sequence_ = static_cast<std::uint8_t>(*fire_request_sequence_ + 1);
         constexpr std::uint8_t fire_servo_mask = 0x01;
         set_servo_angles(servo_fire_angle_, fire_servo_mask);
@@ -295,7 +300,7 @@ private:
         if (action_timeout_remaining_ > 0) --action_timeout_remaining_;
         const auto response_id = *servo_response_id_;
         const bool response_ok = *servo_response_command_ == 0x81
-            && response_id >= 1 && response_id <= 7 && *servo_response_status_ == 0;
+            && response_id >= 1 && response_id <= servo_count_ && *servo_response_status_ == 0;
         const bool is_new_response = *servo_response_sequence_ != response_sequence_before_action_;
         if (response_ok && is_new_response) {
             RCLCPP_INFO(
@@ -306,11 +311,12 @@ private:
                 static_cast<unsigned>(*servo_response_status_));
             waiting_for_completion_ = false;
             if (waiting_action_ == ServoCommand::FIRE) {
-                fire_hold_active_ = true;
+                fire_return_active_ = true;
+                fire_return_ticks_remaining_ = std::max(1, fire_return_interval_ticks_);
                 RCLCPP_INFO(
                     get_logger(),
-                    "Servo FIRE acknowledged: hold servo_1 at %.1f while left switch is MIDDLE",
-                    servo_fire_angle_[0]);
+                    "Servo FIRE acknowledged: all servos will return to configured angles after %d ticks",
+                    fire_return_ticks_remaining_);
             }
             *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT;
         } else if ((*servo_response_command_ == 0x81 && *servo_response_status_ != 0)
@@ -323,44 +329,47 @@ private:
                 static_cast<unsigned>(*servo_response_sequence_),
                 static_cast<unsigned>(*servo_response_status_));
             waiting_for_completion_ = false;
-            fire_hold_active_ = false;
+            fire_return_active_ = false;
+            fire_return_ticks_remaining_ = 0;
             safety_locked_ = true;
             fault_latched_ = true;
-            set_servo_angles(servo_safe_angle_, 0x7f);
+            set_servo_angles(servo_safe_angle_, servo_all_mask_);
             *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT;
         }
     }
 
-    void update_fire_hold(rmcs_msgs::Switch left_switch) {
-        if (!fire_hold_active_ || left_switch == rmcs_msgs::Switch::MIDDLE)
+    void update_fire_return() {
+        if (!fire_return_active_)
             return;
-        fire_hold_active_ = false;
-        set_servo_angles(servo_safe_angle_, 0x7f);
-        RCLCPP_INFO(get_logger(), "Servo FIRE hold released: return to safe angle 0.0");
+        if (--fire_return_ticks_remaining_ > 0)
+            return;
+        fire_return_active_ = false;
+        set_servo_angles(servo_fire_return_angles_, servo_all_mask_);
+        RCLCPP_INFO(get_logger(), "Servo FIRE complete: returned to configured angles");
     }
 
     void request_reload() {
-        const auto stage = reload_count_ % 3;
-        fire_hold_active_ = false;
+        // The first reload opens servos 2/3. Every later reload opens 2/3/4.
+        // The third reload therefore uses the same motion as the second one.
+        const auto stage = std::min(reload_count_, reload_interval_ticks_.size() - 1);
+        fire_return_active_ = false;
+        fire_return_ticks_remaining_ = 0;
         reload_servo_mask_ = stage == 0 ? 0x06 : 0x0e;
         apply_reload_stage(stage);
-        const auto duration = reload_count_ == 0 ? reload_first_duration_ticks_
-            : reload_count_ == 2 ? reload_third_duration_ticks_
-            : reload_count_ == 3 ? reload_fourth_duration_ticks_
-                                 : reload_duration_ticks_[stage];
-        reload_ticks_remaining_ = std::max(1, duration);
+        reload_return_stage_ = stage;
+        reload_ticks_remaining_ = std::max(1, reload_interval_ticks_[stage]);
         ++reload_count_;
         RCLCPP_INFO(
             get_logger(),
-            "Dart reload #%zu: reload servos only, mask=0x%02x; servo_1 is unchanged",
-            stage + 1,
+            "Dart reload #%zu: servos 2/3%s move, mask=0x%02x; servo_1 is unchanged",
+            reload_count_, stage > 0 ? "/4" : "",
             reload_servo_mask_);
         waiting_action_ = ServoCommand::NONE;
         waiting_for_completion_ = false;
         fault_latched_ = false;
         *mode_ = rmcs_msgs::dart_shooting_mode::RELOAD;
         RCLCPP_INFO(
-            get_logger(), "Dart reload started; selected servos will return to safe angles");
+            get_logger(), "Dart reload started; selected servos will return to reload return angles");
     }
 
     void update_reload_motion() {
@@ -368,9 +377,9 @@ private:
             return;
         if (--reload_ticks_remaining_ > 0)
             return;
-        set_servo_angles(servo_safe_angle_, reload_servo_mask_);
+        set_servo_angles(servo_reload_return_angles_[reload_return_stage_], reload_servo_mask_);
         *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT;
-        RCLCPP_INFO(get_logger(), "Dart reload complete: servos returned to safe angles");
+        RCLCPP_INFO(get_logger(), "Dart reload complete: servos returned to configured angles");
     }
 
     void rollback_reload() {
@@ -381,27 +390,25 @@ private:
         --reload_count_;
         waiting_for_completion_ = false;
         reload_ticks_remaining_ = 0;
-        apply_reload_stage(reload_count_ % 3);
+        apply_reload_stage(std::min(reload_count_, reload_interval_ticks_.size() - 1));
         *mode_ = rmcs_msgs::dart_shooting_mode::SHOOT;
-        RCLCPP_WARN(get_logger(), "Dart reload rolled back to stage %zu", reload_count_ % 3 + 1);
+        RCLCPP_WARN(
+            get_logger(), "Dart reload rolled back to stage %zu",
+            reload_count_ == 0 ? std::size_t{1} : std::size_t{2});
     }
 
     void apply_reload_stage(std::size_t stage) {
-        if (stage == 0)
-            set_servo_angles(servo_reload1_angle_, 0x06);
-        else if (stage == 1)
-            set_servo_angles(servo_reload2_angle_, 0x0e);
-        else
-            set_servo_angles(servo_reload3_angle_, 0x0e);
+        const auto mask = stage == 0 ? 0x06 : 0x0e;
+        set_servo_angles(servo_reload_angles_[stage], mask);
     }
 
-    void set_servo_angles(const std::array<double, 7>& angles, std::uint8_t mask) {
-        for (std::size_t index = 0; index < 7; ++index)
+    void set_servo_angles(const std::array<double, 4>& angles, std::uint8_t mask) {
+        for (std::size_t index = 0; index < servo_count_; ++index)
             if (mask & (1u << index))
                 *trigger_servo_angle_[index] = angles[index];
     }
 
-    void load_servo_angles(const char* name, std::array<double, 7>& target) {
+    void load_servo_angles(const char* name, std::array<double, 4>& target) {
         std::vector<double> values;
         if (get_parameter(name, values) && values.size() == target.size())
             std::copy(values.begin(), values.end(), target.begin());
@@ -413,7 +420,7 @@ private:
     InputInterface<rmcs_msgs::Switch> switch_right_;
     InputInterface<rmcs_msgs::Switch> switch_left_;
     InputInterface<double> trigger_motor_angle_[2];
-    OutputInterface<double> trigger_servo_angle_[7];
+    OutputInterface<double> trigger_servo_angle_[4];
     OutputInterface<std::uint8_t> fire_request_sequence_;
     InputInterface<uint8_t> servo_response_sequence_;
     InputInterface<uint8_t> servo_response_command_;
@@ -440,25 +447,33 @@ private:
     int switch_stable_count_ = 0;
     int switch_debounce_ticks_ = 20;
     int action_timeout_ticks_ = 1500;
-    std::array<int, 3> reload_duration_ticks_{500, 500, 500};
-    int reload_first_duration_ticks_ = 2000;
-    int reload_third_duration_ticks_ = 4000;
-    int reload_fourth_duration_ticks_ = 4000;
+    std::array<int, 3> reload_interval_ticks_{2000, 2000, 2000};
     int reload_ticks_remaining_ = 0;
+    std::size_t reload_return_stage_ = 0;
+    int fire_return_interval_ticks_ = 2000;
+    int fire_return_ticks_remaining_ = 0;
     std::uint8_t reload_servo_mask_ = 0;
     int action_timeout_remaining_ = 0;
     std::uint8_t response_sequence_before_action_ = 0;
     ServoCommand waiting_action_ = ServoCommand::NONE;
     double fire_position_tolerance_ = 0.05;
-    std::array<double, 7> servo_fire_angle_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    std::array<double, 7> servo_safe_angle_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    std::array<double, 7> servo_reload1_angle_{90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0};
-    std::array<double, 7> servo_reload2_angle_{90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0};
-    std::array<double, 7> servo_reload3_angle_{90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0};
+    static constexpr std::size_t servo_count_ = 4;
+    static constexpr std::uint8_t servo_all_mask_ = 0x0f;
+    std::array<double, 4> servo_fire_angle_{0.0, 0.0, 0.0, 0.0};
+    std::array<double, 4> servo_safe_angle_{0.0, 0.0, 0.0, 0.0};
+    std::array<std::array<double, 4>, 3> servo_reload_angles_{{
+        {90.0, 0.0, 90.0, 90.0},
+        {90.0, 0.0, 90.0, 90.0},
+        {90.0, 0.0, 90.0, 90.0}}};
+    std::array<std::array<double, 4>, 3> servo_reload_return_angles_{{
+        {0.0, 90.0, 0.0, 0.0},
+        {0.0, 90.0, 0.0, 0.0},
+        {0.0, 90.0, 0.0, 0.0}}};
+    std::array<double, 4> servo_fire_return_angles_{110.0, 90.0, 0.0, 0.0};
     std::size_t reload_count_ = 0;
 
     bool waiting_for_completion_ = false;
-    bool fire_hold_active_ = false;
+    bool fire_return_active_ = false;
     bool safety_locked_ = false;
     bool fault_latched_ = false;
     bool left_trigger_armed_ = true;

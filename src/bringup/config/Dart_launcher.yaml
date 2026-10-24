@@ -46,13 +46,14 @@ value_broadcaster:
       - /trigger/servo/servo_2/angle
       - /trigger/servo/servo_3/angle
       - /trigger/servo/servo_4/angle
-      - /trigger/servo/servo_5/angle
-      - /trigger/servo/servo_6/angle
-      - /trigger/servo/servo_7/angle
+      - /trigger/servo/servo_1/feedback_angle
+      - /trigger/servo/servo_2/feedback_angle
+      - /trigger/servo/servo_3/feedback_angle
+      - /trigger/servo/servo_4/feedback_angle
 
 Dart_launcher_hardware:
   ros__parameters:
-    usb_pid_top_board: 0x7b4e
+    usb_pid_top_board: 0xf112
     left_motor_zero_point: 0
     right_motor_zero_point: 0
     yaw_motor_zero_point: 0
@@ -74,22 +75,25 @@ shooting_dart_controller:
     servo_angle_limit: 180.0
     # FIRE uses mask 0x01, so only servo_1 is driven to the firing position.
     # Keep the other servos at their safe position to avoid unintended motion.
-    servo_fire_angles: [180.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
-    servo_safe_angles: [90.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # Reload positions are independent from the safe position.
-    servo_reload1_angles: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
-    servo_reload2_angles: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
-    servo_reload3_angles: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
+    servo_fire_angles: [90.0, 90.0, 90.0, 90.0]
+    servo_safe_angles: [0.0, 90.0, 0.0, 0.0]
+    # Each array maps to servo_1, servo_2, servo_3, and servo_4.
+    servo_reload1_angles: [90.0, 0.0, 90.0, 90.0]
+    servo_reload2_angles: [90.0, 0.0, 90.0, 90.0]
+    servo_reload3_angles: [90.0, 0.0, 90.0, 90.0]
+    servo_reload1_return_angles: [0.0, 90.0, 0.0, 0.0]
+    servo_reload2_return_angles: [0.0, 90.0, 0.0, 0.0]
+    servo_reload3_return_angles: [0.0, 90.0, 0.0, 0.0]
+    servo_fire_return_angles: [180.0, 90.0, 0.0, 0.0]
 
     joystick_left_bias_y: 0.0
     joystick_sensitivity: 0.004
     switch_debounce_ticks: 20
-    servo_reload1_duration_ticks: 500
-    servo_reload2_duration_ticks: 500
-    servo_reload3_duration_ticks: 500
-    servo_reload_first_duration_ticks: 2000
-    servo_reload_third_duration_ticks: 4000
-    servo_reload_fourth_duration_ticks: 4000
+    # At 1000 Hz, each tick is 1 ms. These intervals are the hold time before return.
+    servo_reload1_interval_ticks: 2000
+    servo_reload2_interval_ticks: 2000
+    servo_reload3_interval_ticks: 2000
+    servo_fire_return_interval_ticks: 2000
     fire_position_tolerance: 0.05
 
     depond_motors:
@@ -105,7 +109,7 @@ yaw_motor_velocity_pid_controller:
     setpoint: /yaw_motor/control_velocity
     control: /yaw_motor/control_torque
     enable: /yaw_motor/alive
-    kp: 5.0
+    kp: 1.0
     ki: 0.0
     kd: 0.0
     max_output: 0.2
@@ -129,7 +133,7 @@ yaw_motor_angle_pid_controller:
     setpoint: /yaw_motor/control_angle
     control: /yaw_motor/control_velocity
     enable: /yaw_motor/alive
-    kp: 9.0
+    kp: 6.0
     ki: 0.0
     kd: 0.0
     max_output: 5.0
